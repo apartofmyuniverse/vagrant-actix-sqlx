@@ -1,0 +1,149 @@
+---
+- hosts: all
+  become: true
+  vars:
+    container_count: 4
+    default_container_name: docker
+    default_container_image: ubuntu
+    default_container_command: sleep 1
+    deploy_path: /vagrant/
+    docker_compose_path : /usr/local/bin/docker-compose
+    db_user: postgres
+    db_password: changeme
+    db_name : rust
+    allow_world_readable_tmpfiles : true
+  tasks:
+      - name: Install aptitude
+        apt:
+          name: aptitude
+          state: latest
+          force_apt_get: yes
+          update_cache: true
+
+      - name: Install required system packages
+        apt:
+          pkg:
+            - apt-transport-https
+            - ca-certificates
+            - curl
+            - software-properties-common
+            - python3-pip
+            - virtualenv
+            - python3-setuptools
+          state: latest
+          update_cache: true
+
+      - name: Add Docker GPG apt Key
+        apt_key:
+          url: https://download.docker.com/linux/ubuntu/gpg
+          state: present
+
+      - name: Add Docker Repository
+        apt_repository:
+          repo: deb https://download.docker.com/linux/ubuntu focal stable
+          state: present
+
+      - name: Update apt and install docker-ce
+        apt:
+          name: docker-ce
+          state: latest
+          update_cache: true
+
+      - name: Install Docker Module for Python
+        pip:
+          name: docker
+          
+      - name: Pull default Docker image
+        community.docker.docker_image:
+          name: "{{ default_container_image }}"
+          source: pull
+
+      - name: Add "vagrant" user to "docker" group
+        remote_user: ansible_ubuntu_demo
+        user:
+          name: "vagrant"
+          group: "docker"
+          append: yes
+
+      - name: Install docker-compose from official github repo
+        remote_user: vagrant
+        get_url:
+          url : https://github.com/docker/compose/releases/download/1.29.2/docker-compose-Linux-x86_64
+          dest: '{{docker_compose_path}}'
+          mode: 'u+x,g+x'
+      
+      - name: Change file ownership, group and permissions
+        ansible.builtin.file:
+          path: '{{docker_compose_path}}'
+          owner: vagrant
+          group: vagrant
+      
+      - name: Set fact for local docker-compose.yml
+        set_fact: local_docker_compose='{{ deploy_path }}docker-compose.yml'
+
+      - name: Fail if no docker-compose.yml is present in project
+        fail:
+          msg: 'No docker-compose.yml found in {{ deploy_path }}'
+        when: not (local_docker_compose is file)
+      
+      - name: Stop all running containers
+        shell: '{{docker_compose_path}} stop'
+        args:
+          chdir: '{{ deploy_path }}'
+
+      - name: Build stack with docker-compose locally
+        shell: '{{docker_compose_path}} build'
+        args:
+          chdir: '{{ deploy_path }}'
+
+      - name: Start stack with docker-compose locally
+        shell: '{{docker_compose_path}} up -d'
+        args:
+          chdir: '{{ deploy_path }}'
+      
+      - name: Create database using using psql
+        community.docker.docker_container_exec:
+          container: postgres_container      
+          command: /scripts/create_database.sh
+
+      - name: Create database using using psql
+        community.docker.docker_container_exec:
+          container: postgres_container      
+          command: psql -h localhost -U postgres -d {{db_name}} -a -f /sql/create_tables.sql
+
+      #- name: Create using using psql
+      #  community.docker.docker_container_exec:
+      #    container: postgres_container      
+      #      command : /bin/bash -c 'if [[ $(psql -h localhost -p 5432 -U postgres -tc "SELECT 1 FROM pg_database WHERE datname=''rust''") -ne "1" ]]; then $(psql -h localhost -p 5432 -U postgres -c "CREATE DATABASE rust" > /dev/null); fi'
+      #  register: result
+
+      #- name: Create users table using using psql
+      #  community.docker.docker_container_exec:
+      #    container: postgres_container
+      #    command : psql -h localhost -p 5432 -U postgres -c "CREATE TABLE IF NOT EXISTS public.users (
+      #        id int8 NOT NULL DEFAULT nextval('users_id_seq'::regclass),
+      #        first_name varchar NOT NULL,
+      #        last_name varchar NOT NULL,
+      #        PRIMARY KEY (id)
+      #      );""
+#
+      #- name: Create articles_id_seq sequence using using psql
+      #  community.docker.docker_container_exec:
+      #    container: postgres_container
+      #    command : psql -h localhost -p 5432 -U postgres -c "CREATE SEQUENCE IF NOT EXISTS articles_id_seq"
+      #  register: result        
+#
+      #- name: Create articles table using using psql
+      #  community.docker.docker_container_exec:
+      #    container: postgres_container
+      #    command : psql -h localhost -p 5432 -U postgres -c "CREATE TABLE IF NOT EXISTS public.articles (
+      #              id int8 NOT NULL DEFAULT nextval('articles_id_seq'::regclass),
+      #              title varchar NOT NULL,
+      #              content varchar NOT NULL,
+      #              created_by int8 NOT NULL,
+      #              PRIMARY KEY (id)
+      #          );"
+#
+      #- name: Print stdout
+      #  debug:
+      #   var: result.stdout
