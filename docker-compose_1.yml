@@ -1,0 +1,42 @@
+version: "3"
+
+networks:
+ kong-net:
+  driver: bridge
+ #api-net:
+ # driver: bridge
+
+volumes:
+    postgres:
+
+services:
+   #######################################
+  # Rust: Rust API
+  #######################################
+  rust-api:
+    container_name: rust_api
+    build: ./actix-sqlx
+    networks:
+      - kong-net
+    ports:
+      - "8080:8080"
+
+  #######################################
+  # Postgres: Posgres DB
+  #######################################      
+  postgres:
+    container_name: postgres_container
+    #image: postgres
+    build: ./postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-rust}
+      PGDATA: /data/postgres
+    volumes:
+       - postgres:/data/postgres
+    ports:
+      - "6432:5432"
+    networks:
+      - kong-net
+    restart: unless-stopped
