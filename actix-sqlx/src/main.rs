@@ -27,6 +27,7 @@ async fn main() -> std::io::Result<()>{
 
     info!("url: {} port : {}",cfg.service.url,cfg.service.port);
 
+    info!("Database : {:?}",std::env::var("DATABASE_URL")); 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not found");
     let pool = PgPoolOptions::new()
         .max_connections(5)
